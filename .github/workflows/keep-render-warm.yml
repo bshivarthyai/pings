@@ -2,8 +2,8 @@ name: Keep Render Warm (Render)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"     # every 5 minutes (UTC)
-  workflow_dispatch:          # allow manual runs
+    - cron: "*/5 * * * *"      # every 5 minutes (UTC)
+  workflow_dispatch:           # allow manual trigger
 
 permissions:
   contents: read
@@ -16,36 +16,20 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    strategy:
-      matrix:
-        url:
-          # MCP relay: root path (no /health yet)
-          - https://synorb-mcp-relay-svc.onrender.com/
-          # API client: /health works here
-          - https://apiclient-uim1.onrender.com/health
     steps:
       - name: Small random jitter
         run: sleep $((RANDOM % 60))
 
-      - name: Warm ${{ matrix.url }}
+      - name: Ping MCP relay (root)
+        continue-on-error: true
         run: |
-          # Don't fail the job on non-2xx; goal is to keep the app hot.
-          set +e
-          URL="${{ matrix.url }}?t=$(date +%s)"
-          echo "Pinging: $URL"
+          URL="https://synorb-mcp-relay-svc.onrender.com/?t=$(date +%s)"
+          echo "GET $URL"
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" "$URL" || true
 
-          # Try HEAD up to 3 times (fast & cheap)
-          for i in 1 2 3; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" -I "$URL")
-            echo "HEAD attempt $i -> $code"
-            [ "$code" -gt 0 ] && break
-            sleep 2
-          done
-
-          # If HEAD is not successful, do a GET once (also warms caches)
-          if [ "$code" -eq 000 ] || [ "$code" -ge 400 ]; then
-            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
-            echo "GET fallback -> $code"
-          fi
-
-          echo "Done warming: $URL"
+      - name: Ping API client (/health)
+        continue-on-error: true
+        run: |
+          URL="https://apiclient-uim1.onrender.com/health?t=$(date +%s)"
+          echo "GET $URL"
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" "$URL" || true
