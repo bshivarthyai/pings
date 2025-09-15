@@ -1,0 +1,37 @@
+name: Keep Render Warm (Render)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"     # every 5 minutes (UTC)
+  workflow_dispatch:          # lets you run it manually now
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-render-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        url:
+          - https://synorb-mcp-relay-svc.onrender.com/health
+          - https://apiclient-uim1.onrender.com/health
+    steps:
+      - name: Small random jitter
+        run: sleep $((RANDOM % 60))
+
+      - name: HEAD ping ${{ matrix.url }} (fallback to GET)
+        run: |
+          for i in 1 2 3; do
+            if curl -sSIf "${{ matrix.url }}?t=$(date +%s)"; then
+              echo "OK (HEAD)"; exit 0
+            fi
+            sleep 2
+          done
+          curl -sSf "${{ matrix.url }}?t=$(date +%s)" -o /dev/null
+          echo "OK (GET fallback)"
