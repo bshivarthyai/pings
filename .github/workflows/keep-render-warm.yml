@@ -3,7 +3,7 @@ name: Keep Render Warm (Render)
 on:
   schedule:
     - cron: "*/5 * * * *"     # every 5 minutes (UTC)
-  workflow_dispatch:          # lets you run it manually now
+  workflow_dispatch:          # allow manual runs
 
 permissions:
   contents: read
@@ -19,19 +19,33 @@ jobs:
     strategy:
       matrix:
         url:
-          - https://synorb-mcp-relay-svc.onrender.com/health
+          # MCP relay: root path (no /health yet)
+          - https://synorb-mcp-relay-svc.onrender.com/
+          # API client: /health works here
           - https://apiclient-uim1.onrender.com/health
     steps:
       - name: Small random jitter
         run: sleep $((RANDOM % 60))
 
-      - name: HEAD ping ${{ matrix.url }} (fallback to GET)
+      - name: Warm ${{ matrix.url }}
         run: |
+          # Don't fail the job on non-2xx; goal is to keep the app hot.
+          set +e
+          URL="${{ matrix.url }}?t=$(date +%s)"
+          echo "Pinging: $URL"
+
+          # Try HEAD up to 3 times (fast & cheap)
           for i in 1 2 3; do
-            if curl -sSIf "${{ matrix.url }}?t=$(date +%s)"; then
-              echo "OK (HEAD)"; exit 0
-            fi
+            code=$(curl -s -o /dev/null -w "%{http_code}" -I "$URL")
+            echo "HEAD attempt $i -> $code"
+            [ "$code" -gt 0 ] && break
             sleep 2
           done
-          curl -sSf "${{ matrix.url }}?t=$(date +%s)" -o /dev/null
-          echo "OK (GET fallback)"
+
+          # If HEAD is not successful, do a GET once (also warms caches)
+          if [ "$code" -eq 000 ] || [ "$code" -ge 400 ]; then
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            echo "GET fallback -> $code"
+          fi
+
+          echo "Done warming: $URL"
